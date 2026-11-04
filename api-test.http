@@ -74,3 +74,28 @@ DELETE {{baseUrl}}/borrows/6aeabca004030cdd1565f6b0
 
 ### Check Book Copies
 GET {{baseUrl}}/books/6aeabc1104030cdd1565f6af
+
+
+### Duplicate Borrow Test
+POST {{baseUrl}}/borrows
+Content-Type: application/json
+
+{
+  "bookId": "6aeabc1104030cdd1565f6af",
+  "userName": "Samrat",
+  "userEmail": "samrat@example.com",
+  "borrowDate": "2026-11-04",
+  "returnDate": "2026-11-14"
+}
+
+### Duplicate Borrow Test
+POST {{baseUrl}}/borrows
+Content-Type: application/json
+
+{
+  "bookId": "6aeabc1104030cdd1565f6af",
+  "userName": "Samrat",
+  "userEmail": "samrat@example.com",
+  "borrowDate": "2026-11-04",
+  "returnDate": "2026-11-14"
+}
