@@ -1,9 +1,4 @@
 @baseUrl = http://localhost:5000
-//@bookId = "6aeab6c589b98fb343eb1bb8"
-
-### Get All Books
-GET {{baseUrl}}/books
-
 
 ### Add New Book
 POST {{baseUrl}}/books
@@ -22,25 +17,60 @@ Content-Type: application/json
   }
 }
 
-# @bookId = তোমার_GENERATED_BOOK_ID
-
-# ### Get Single Book
-# GET {{baseUrl}}/books/{{bookId}}
-
-@baseUrl = http://localhost:5000
-@bookId = 6aeab72f89b98fb343eb1bb9
+@bookId = 6aeabc1104030cdd1565f6af
 
 ### Get Single Book
 GET {{baseUrl}}/books/{{bookId}}
 
-### Update Book
-PATCH {{baseUrl}}/books/{{bookId}}
+### Borrow a Book
+POST {{baseUrl}}/borrows
 Content-Type: application/json
 
 {
-  "title": "The Alchemist - Updated",
-  "totalCopies": 15
+  "bookId": "{{bookId}}",
+  "userName": "Samrat",
+  "userEmail": "samrat@example.com",
+  "borrowDate": "2026-11-04",
+  "returnDate": "2026-11-14"
 }
 
-### Delete Book
-DELETE {{baseUrl}}/books/{{bookId}}
+### Get All Borrows
+GET {{baseUrl}}/borrows
+
+@bookId = 6aeabc1104030cdd1565f6af
+
+### Borrow a Book
+POST {{baseUrl}}/borrows
+Content-Type: application/json
+
+{
+  "bookId": "{{bookId}}",
+  "userName": "Samrat",
+  "userEmail": "samrat@example.com",
+  "borrowDate": "2026-11-04",
+  "returnDate": "2026-11-14"
+}
+
+### Check Available Copies
+GET {{baseUrl}}/books/{{bookId}}
+
+### Get All Borrows
+GET {{baseUrl}}/borrows
+
+### Duplicate Borrow Test
+POST {{baseUrl}}/borrows
+Content-Type: application/json
+
+{
+  "bookId": "6aeabc1104030cdd1565f6af",
+  "userName": "Samrat",
+  "userEmail": "samrat@example.com",
+  "borrowDate": "2026-11-04",
+  "returnDate": "2026-11-14"
+}
+
+### Return Book
+DELETE {{baseUrl}}/borrows/6aeabca004030cdd1565f6b0
+
+### Check Book Copies
+GET {{baseUrl}}/books/6aeabc1104030cdd1565f6af
