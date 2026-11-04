@@ -1,0 +1,46 @@
+@baseUrl = http://localhost:5000
+//@bookId = "6aeab6c589b98fb343eb1bb8"
+
+### Get All Books
+GET {{baseUrl}}/books
+
+
+### Add New Book
+POST {{baseUrl}}/books
+Content-Type: application/json
+
+{
+  "title": "The Alchemist",
+  "author": "Paulo Coelho",
+  "category": "Fiction",
+  "image": "https://images.unsplash.com/photo-1544947950-fa07a98d237f",
+  "description": "A young shepherd travels in search of his personal legend.",
+  "totalCopies": 10,
+  "addedBy": {
+    "name": "Samrat",
+    "email": "samrat@example.com"
+  }
+}
+
+# @bookId = তোমার_GENERATED_BOOK_ID
+
+# ### Get Single Book
+# GET {{baseUrl}}/books/{{bookId}}
+
+@baseUrl = http://localhost:5000
+@bookId = 6aeab72f89b98fb343eb1bb9
+
+### Get Single Book
+GET {{baseUrl}}/books/{{bookId}}
+
+### Update Book
+PATCH {{baseUrl}}/books/{{bookId}}
+Content-Type: application/json
+
+{
+  "title": "The Alchemist - Updated",
+  "totalCopies": 15
+}
+
+### Delete Book
+DELETE {{baseUrl}}/books/{{bookId}}
