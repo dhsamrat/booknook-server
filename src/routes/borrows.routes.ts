@@ -2,22 +2,32 @@
 import { Router, Request, Response } from "express";
 import { ObjectId } from "mongodb";
 import { getDB } from "../config/db.js";
+import { verifyToken } from "../middlewares/verifyToken.js";
 
 const router = Router();
 
-// POST /borrows - Borrow a book
-router.post("/", async (req: Request, res: Response) => {
+// POST /borrows - Borrow a book (Protected)
+router.post("/", verifyToken, async (req: Request, res: Response) => {
   let reservedCopy = false;
   let borrowInserted = false;
   let bookId: ObjectId | null = null;
 
   try {
-    const { bookId: requestedBookId, userName, userEmail, borrowDate, returnDate } = req.body;
+    const { bookId: requestedBookId, borrowDate, returnDate } = req.body;
+
+    // Get authenticated user from JWT
+    const user = res.locals.user as {
+      id: string;
+      email: string;
+      name?: string;
+    };
+
+    const userEmail = user.email?.trim().toLowerCase();
+    const userName = user.name?.trim() || userEmail;
 
     if (
       !ObjectId.isValid(requestedBookId) ||
-      !userName?.trim() ||
-      !userEmail?.trim() ||
+      !userEmail ||
       !borrowDate ||
       !returnDate
     ) {
@@ -48,7 +58,6 @@ router.post("/", async (req: Request, res: Response) => {
     const borrowsCollection = db.collection("borrows");
 
     bookId = new ObjectId(requestedBookId);
-    const email = userEmail.trim().toLowerCase();
 
     // Prevent duplicate active borrowing
     await borrowsCollection.createIndex(
@@ -58,7 +67,7 @@ router.post("/", async (req: Request, res: Response) => {
 
     const existingBorrow = await borrowsCollection.findOne({
       bookId,
-      userEmail: email,
+      userEmail,
     });
 
     if (existingBorrow) {
@@ -104,8 +113,8 @@ router.post("/", async (req: Request, res: Response) => {
       bookId,
       bookTitle: book.title,
       bookImage: book.image,
-      userName: userName.trim(),
-      userEmail: email,
+      userName,
+      userEmail,
       borrowDate: startDate,
       returnDate: endDate,
       createdAt: new Date(),
@@ -120,12 +129,16 @@ router.post("/", async (req: Request, res: Response) => {
       data: newBorrow,
     });
   } catch (error: any) {
-    // Restore the copy if inserting the borrow record failed
+    // Restore copy if borrow insertion fails
     if (reservedCopy && !borrowInserted && bookId) {
-      await getDB().collection("books").updateOne(
-        { _id: bookId },
-        { $inc: { availableCopies: 1 } }
-      );
+      try {
+        await getDB().collection("books").updateOne(
+          { _id: bookId },
+          { $inc: { availableCopies: 1 } }
+        );
+      } catch (rollbackError) {
+        console.error("Copy restoration error:", rollbackError);
+      }
     }
 
     if (error?.code === 11000) {
@@ -145,20 +158,28 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
-// GET /borrows - Get borrow records
-router.get("/", async (req: Request, res: Response) => {
+// GET /borrows - Get only logged-in user's borrow records (Protected)
+router.get("/", verifyToken, async (_req: Request, res: Response) => {
   try {
+    const user = res.locals.user as {
+      email: string;
+    };
+
+    const userEmail = user.email?.trim().toLowerCase();
+
+    if (!userEmail) {
+      res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+      return;
+    }
+
     const db = getDB();
-
-    const userEmail = req.query.email?.toString().trim().toLowerCase();
-
-    const filter = userEmail
-      ? { userEmail }
-      : {};
 
     const borrows = await db
       .collection("borrows")
-      .find(filter)
+      .find({ userEmail })
       .sort({ createdAt: -1 })
       .toArray();
 
@@ -177,8 +198,8 @@ router.get("/", async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /borrows/:id - Return a borrowed book
-router.delete("/:id", async (req: Request, res: Response) => {
+// DELETE /borrows/:id - Return own borrowed book (Protected)
+router.delete("/:id", verifyToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -190,15 +211,30 @@ router.delete("/:id", async (req: Request, res: Response) => {
       return;
     }
 
+    const user = res.locals.user as {
+      email: string;
+    };
+
+    const userEmail = user.email?.trim().toLowerCase();
+
+    if (!userEmail) {
+      res.status(401).json({
+        success: false,
+        message: "User email not found",
+      });
+      return;
+    }
+
     const db = getDB();
     const borrowsCollection = db.collection("borrows");
     const booksCollection = db.collection("books");
 
     const borrowId = new ObjectId(id);
 
-    // Delete first, so the same borrow cannot be returned twice
+    // Delete only the authenticated user's borrow record
     const deletedBorrow = await borrowsCollection.findOneAndDelete({
       _id: borrowId,
+      userEmail,
     });
 
     if (!deletedBorrow) {
@@ -209,18 +245,26 @@ router.delete("/:id", async (req: Request, res: Response) => {
       return;
     }
 
+    // Restore the available copy
     const updateResult = await booksCollection.updateOne(
-      { _id: deletedBorrow.bookId },
-      { $inc: { availableCopies: 1 } }
+      {
+        _id: deletedBorrow.bookId,
+        $expr: {
+          $lt: ["$availableCopies", "$totalCopies"],
+        },
+      },
+      {
+        $inc: { availableCopies: 1 },
+      }
     );
 
-    if (updateResult.matchedCount === 0) {
-      // Restore the borrow record if the book is missing
+    if (updateResult.modifiedCount === 0) {
+      // Restore borrow record if book copy could not be updated
       await borrowsCollection.insertOne(deletedBorrow);
 
       res.status(404).json({
         success: false,
-        message: "Book not found",
+        message: "Book not found or copy count could not be updated",
       });
       return;
     }

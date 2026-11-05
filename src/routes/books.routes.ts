@@ -2,15 +2,22 @@
 import { Router, Request, Response } from "express";
 import { ObjectId } from "mongodb";
 import { getDB } from "../config/db.js";
+import { verifyToken } from "../middlewares/verifyToken.js";
 
 const router = Router();
 
-// GET /books - Get all books
+const allowedCategories = [
+  "Fiction",
+  "Science",
+  "History",
+  "Kids",
+  "Others",
+];
 
+// GET /books - Public: Get all books
 router.get("/", async (req: Request, res: Response) => {
   try {
     const db = getDB();
-
     const limit = Number(req.query.limit);
 
     let booksQuery = db
@@ -18,7 +25,6 @@ router.get("/", async (req: Request, res: Response) => {
       .find()
       .sort({ createdAt: -1 });
 
-    // Apply limit only when a valid limit is provided
     if (
       req.query.limit !== undefined &&
       Number.isInteger(limit) &&
@@ -30,31 +36,29 @@ router.get("/", async (req: Request, res: Response) => {
 
     const books = await booksQuery.toArray();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Books fetched successfully",
       data: books,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch books",
     });
   }
 });
 
-
-// GET /books/:id - Get single book
+// GET /books/:id - Public: Get single book
 router.get("/:id", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
     if (!ObjectId.isValid(id)) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: "Invalid book ID",
       });
-      return;
     }
 
     const db = getDB();
@@ -64,28 +68,33 @@ router.get("/:id", async (req: Request, res: Response) => {
     });
 
     if (!book) {
-      res.status(404).json({
+      return res.status(404).json({
         success: false,
         message: "Book not found",
       });
-      return;
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: book,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch book",
     });
   }
 });
 
-// POST /books - Add new book
-router.post("/", async (req: Request, res: Response) => {
+// POST /books - Protected: Add new book
+router.post("/", verifyToken, async (req: Request, res: Response) => {
   try {
+    const user = res.locals.user as {
+      id: string;
+      email: string;
+      name?: string;
+    };
+
     const {
       title,
       author,
@@ -93,41 +102,25 @@ router.post("/", async (req: Request, res: Response) => {
       image,
       description,
       totalCopies,
-      addedBy,
     } = req.body;
 
     if (
-      !title?.trim() ||
-      !author?.trim() ||
-      !category ||
-      !image?.trim() ||
-      !description?.trim() ||
+      typeof title !== "string" ||
+      !title.trim() ||
+      typeof author !== "string" ||
+      !author.trim() ||
+      !allowedCategories.includes(category) ||
+      typeof image !== "string" ||
+      !image.trim() ||
+      typeof description !== "string" ||
+      !description.trim() ||
       !Number.isInteger(totalCopies) ||
-      totalCopies < 1 ||
-      !addedBy?.name?.trim() ||
-      !addedBy?.email?.trim()
+      totalCopies < 1
     ) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: "Please provide valid book information",
       });
-      return;
-    }
-
-    const allowedCategories = [
-      "Fiction",
-      "Science",
-      "History",
-      "Kids",
-      "Others",
-    ];
-
-    if (!allowedCategories.includes(category)) {
-      res.status(400).json({
-        success: false,
-        message: "Invalid book category",
-      });
-      return;
     }
 
     const db = getDB();
@@ -141,15 +134,15 @@ router.post("/", async (req: Request, res: Response) => {
       totalCopies,
       availableCopies: totalCopies,
       addedBy: {
-        name: addedBy.name.trim(),
-        email: addedBy.email.trim().toLowerCase(),
+        name: user.name || user.email,
+        email: user.email.toLowerCase(),
       },
       createdAt: new Date(),
     };
 
     const result = await db.collection("books").insertOne(newBook);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Book added successfully",
       data: {
@@ -158,25 +151,32 @@ router.post("/", async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Add book error:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to add book",
     });
   }
 });
 
-// PATCH /books/:id - Update book
-router.patch("/:id", async (req: Request, res: Response) => {
+// PATCH /books/:id - Protected: Owner only
+router.patch("/:id", verifyToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
     if (!ObjectId.isValid(id)) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: "Invalid book ID",
       });
-      return;
     }
+
+    const user = res.locals.user as {
+      id: string;
+      email: string;
+      name?: string;
+    };
 
     const allowedFields = [
       "title",
@@ -196,23 +196,48 @@ router.patch("/:id", async (req: Request, res: Response) => {
     }
 
     if (Object.keys(updates).length === 0) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: "No valid fields provided for update",
       });
-      return;
+    }
+
+    for (const field of ["title", "author", "image", "description"]) {
+      if (
+        updates[field] !== undefined &&
+        (typeof updates[field] !== "string" ||
+          !(updates[field] as string).trim())
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid ${field}`,
+        });
+      }
+
+      if (typeof updates[field] === "string") {
+        updates[field] = (updates[field] as string).trim();
+      }
+    }
+
+    if (
+      updates.category !== undefined &&
+      !allowedCategories.includes(updates.category as string)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid book category",
+      });
     }
 
     if (
       updates.totalCopies !== undefined &&
       (!Number.isInteger(updates.totalCopies) ||
-        (updates.totalCopies as number) < 0)
+        (updates.totalCopies as number) < 1)
     ) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: "Invalid total copies",
       });
-      return;
     }
 
     const db = getDB();
@@ -222,11 +247,20 @@ router.patch("/:id", async (req: Request, res: Response) => {
     });
 
     if (!existingBook) {
-      res.status(404).json({
+      return res.status(404).json({
         success: false,
         message: "Book not found",
       });
-      return;
+    }
+
+    if (
+      existingBook.addedBy?.email?.toLowerCase() !==
+      user.email.toLowerCase()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to update this book",
+      });
     }
 
     if (updates.totalCopies !== undefined) {
@@ -235,68 +269,97 @@ router.patch("/:id", async (req: Request, res: Response) => {
         Number(existingBook.availableCopies ?? 0);
 
       if ((updates.totalCopies as number) < borrowedCopies) {
-        res.status(400).json({
+        return res.status(400).json({
           success: false,
           message: "Total copies cannot be less than borrowed copies",
         });
-        return;
       }
 
-      updates["availableCopies"] =
+      updates.availableCopies =
         (updates.totalCopies as number) - borrowedCopies;
     }
 
     const result = await db.collection("books").updateOne(
-      { _id: new ObjectId(id) },
+      {
+        _id: new ObjectId(id),
+        "addedBy.email": user.email.toLowerCase(),
+      },
       { $set: updates }
     );
 
-    res.status(200).json({
+    if (result.matchedCount === 0) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to update this book",
+      });
+    }
+
+    return res.status(200).json({
       success: true,
       message: "Book updated successfully",
       modifiedCount: result.modifiedCount,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Update book error:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to update book",
     });
   }
 });
 
-// DELETE /books/:id - Delete book
-router.delete("/:id", async (req: Request, res: Response) => {
+// DELETE /books/:id - Protected: Owner only
+router.delete("/:id", verifyToken, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
     if (!ObjectId.isValid(id)) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: "Invalid book ID",
       });
-      return;
     }
+
+    const user = res.locals.user as {
+      id: string;
+      email: string;
+      name?: string;
+    };
 
     const db = getDB();
 
     const result = await db.collection("books").deleteOne({
       _id: new ObjectId(id),
+      "addedBy.email": user.email.toLowerCase(),
     });
 
     if (result.deletedCount === 0) {
-      res.status(404).json({
-        success: false,
-        message: "Book not found",
+      const existingBook = await db.collection("books").findOne({
+        _id: new ObjectId(id),
       });
-      return;
+
+      if (!existingBook) {
+        return res.status(404).json({
+          success: false,
+          message: "Book not found",
+        });
+      }
+
+      return res.status(403).json({
+        success: false,
+        message: "You are not allowed to delete this book",
+      });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       message: "Book deleted successfully",
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Delete book error:", error);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to delete book",
     });
