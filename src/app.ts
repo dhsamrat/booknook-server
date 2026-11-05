@@ -1,3 +1,4 @@
+
 import express from "express";
 import cors from "cors";
 
@@ -9,9 +10,14 @@ import borrowsRoutes from "./routes/borrows.routes.js";
 
 const app = express();
 
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://booknook-client-black.vercel.app",
+];
+
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: allowedOrigins,
     credentials: true,
   })
 );
