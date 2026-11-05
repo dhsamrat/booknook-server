@@ -145,14 +145,20 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
-// GET /borrows - Get all borrow records
+// GET /borrows - Get borrow records
 router.get("/", async (req: Request, res: Response) => {
   try {
     const db = getDB();
 
+    const userEmail = req.query.email?.toString().trim().toLowerCase();
+
+    const filter = userEmail
+      ? { userEmail }
+      : {};
+
     const borrows = await db
       .collection("borrows")
-      .find()
+      .find(filter)
       .sort({ createdAt: -1 })
       .toArray();
 
@@ -162,6 +168,8 @@ router.get("/", async (req: Request, res: Response) => {
       data: borrows,
     });
   } catch (error) {
+    console.error("Fetch borrows error:", error);
+
     res.status(500).json({
       success: false,
       message: "Failed to fetch borrow records",

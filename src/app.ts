@@ -1,6 +1,9 @@
-
 import express from "express";
 import cors from "cors";
+
+import { toNodeHandler } from "better-auth/node";
+import { auth } from "./config/auth.js";
+
 import booksRoutes from "./routes/books.routes.js";
 import borrowsRoutes from "./routes/borrows.routes.js";
 
@@ -12,6 +15,9 @@ app.use(
     credentials: true,
   })
 );
+
+// Better Auth handler must be before express.json()
+app.all("/api/auth/*splat", toNodeHandler(auth));
 
 app.use(express.json());
 
